@@ -1,335 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Flappy Siput (Web)</title>
-<style>
-  html,body { height:100%; margin:0; background:#000; font-family:Arial,Helvetica,sans-serif; }
-  #gameWrap { position:relative; width:100%; height:100vh; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-  canvas { background: #000; display:block; }
-  /* Menu overlay */
-  .overlay {
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:auto;
-  }
-  .menu {
-    width:90%; max-width:600px; background: rgba(0,0,0,0.6); padding:20px; border-radius:12px; text-align:center; color:#fff;
-  }
-  .menu h1 { margin:0 0 10px; font-size:32px; color:#ffdd57; }
-  .btn { display:inline-block; margin:10px; padding:12px 26px; background:#27ae60; color:white; border-radius:8px; text-decoration:none; cursor:pointer; }
-  .btn.exit { background:#e74c3c; }
-  .hud { position:absolute; left:18px; top:18px; color:white; text-shadow:0 1px 2px #000; font-size:20px; }
-  .popup-x2 { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); pointer-events:none; }
-  .small { font-size:16px; color:#ddd; margin-top:8px; }
-  @media (max-width:480px) { .menu h1 { font-size:24px } .btn { padding:10px 18px } }
-</style>
+  <meta charset="UTF-8">
+  <title>Flappy Bird Web</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #70c5ce; }
+    canvas { display: block; margin: auto; background: #70c5ce; }
+    #score {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      font-size: 40px;
+      font-family: Arial, sans-serif;
+      color: white;
+      font-weight: bold;
+      text-shadow: 2px 2px 4px black;
+    }
+  </style>
 </head>
 <body>
-<div id="gameWrap">
-  <canvas id="gameCanvas"></canvas>
+  <div id="score">Score: 0</div>
+  <canvas id="gameCanvas" width="480" height="640"></canvas>
 
-  <!-- Menu overlay -->
-  <div id="menuOverlay" class="overlay">
-    <div class="menu">
-      <h1>Flappy Siput</h1>
-      <p class="small">Versi web — klik MULAI lalu ketuk layar / tekan spasi untuk terbang.</p>
-      <div>
-        <button id="startBtn" class="btn">MULAI</button>
-        <button id="exitBtn" class="btn exit">KELUAR</button>
-      </div>
-      <p class="small">Highscore: <span id="hsMenu">0</span></p>
-    </div>
-  </div>
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
 
-  <!-- HUD -->
-  <div class="hud" id="hud">
-    <div id="score">Skor: 0</div>
-    <div id="highscore" style="margin-top:6px">Highscore: 0</div>
-  </div>
+    // Burung
+    let birdX = 80;
+    let birdY = 250;
+    let birdRadius = 20;
+    let velocity = 0;
+    let gravity = 0.6;
+    let jump = -10;
 
-  <!-- Popup x2 -->
-  <img id="popupX2" class="popup-x2" src="assets/x2.png" style="display:none; width:320px; max-width:80%;" alt="2x" />
-</div>
+    // Pipa
+    let pipes = [];
+    let pipeWidth = 70;
+    let gap = 150;
+    let pipeSpeed = 3;
 
-<script>
-/* Flappy Siput - HTML5 Canvas version
-   Features: menu, sounds, pipes (normal/x2), 2x score powerup 10s with center popup, highscore via localStorage
-*/
+    // Skor
+    let score = 0;
 
-// Canvas setup
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-let W = window.innerWidth, H = window.innerHeight;
-function resize(){ W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; }
-resize();
-window.addEventListener('resize', resize);
+    document.addEventListener("keydown", flap);
+    document.addEventListener("mousedown", flap);
 
-// Assets paths (must match your repo)
-const ASSETS = {
-  bg: 'assets/background.png',
-  base: 'assets/base.png',
-  bird: 'assets/bird.png',
-  pipe: 'assets/pipe.png',
-  pipe_x2: 'assets/pipe_x2.png',
-  popup_x2: 'assets/x2.png',
-  sounds: {
-    backsound: 'assets/sounds/backsound.mp3',
-    flap: 'assets/sounds/flap.mp3',
-    hit: 'assets/sounds/hit.mp3',
-    point: 'assets/sounds/point.mp3' // optional
-  }
-};
+    function flap() {
+      velocity = jump;
+    }
 
-// Game variables
-let bird = { x: 0, y:0, w:60, h:60, vy:0 };
-let gravity = 0.9, jumpPower = -14;
-let pipes = []; // objects: {x,y,type,passed}
-let pipeW = 100, gap = 400;
-let pipeGapHoriz = 500;
-let speed = 5;
-let score = 0, highscore = 0;
-let running = false, inMenu = true;
-let doubleActive = false, doubleStart = 0, doubleDuration = 10; // seconds
+    function addPipe() {
+      let topHeight = Math.floor(Math.random() * (canvas.height - gap - 100)) + 50;
+      pipes.push({ x: canvas.width, top: topHeight });
+    }
 
-// Load images
-function loadImage(src){ const i=new Image(); i.src=src; return i; }
-const imgBg = loadImage(ASSETS.bg);
-const imgBase = loadImage(ASSETS.base);
-const imgBird = loadImage(ASSETS.bird);
-const imgPipe = loadImage(ASSETS.pipe);
-const imgPipeX2 = loadImage(ASSETS.pipe_x2);
+    function update() {
+      velocity += gravity;
+      birdY += velocity;
 
-// Sounds
-const audio = {};
-function loadAudio(name, src, loop=false){
-  const a = new Audio(src);
-  a.loop = loop;
-  a.preload = 'auto';
-  a.volume = 0.5;
-  audio[name] = a;
-}
-loadAudio('backsound', ASSETS.sounds.backsound, true);
-loadAudio('flap', ASSETS.sounds.flap);
-loadAudio('hit', ASSETS.sounds.hit);
-loadAudio('point', ASSETS.sounds.point);
+      // Gerak pipa
+      for (let i = 0; i < pipes.length; i++) {
+        pipes[i].x -= pipeSpeed;
 
-// localStorage highscore
-try {
-  highscore = parseInt(localStorage.getItem('flappy_siput_hs') || '0');
-} catch(e){
-  highscore = 0;
-}
-document.getElementById('hsMenu').innerText = highscore;
-document.getElementById('highscore').innerText = 'Highscore: ' + highscore;
+        // Deteksi tabrakan
+        if (
+          birdX + birdRadius > pipes[i].x &&
+          birdX - birdRadius < pipes[i].x + pipeWidth &&
+          (birdY - birdRadius < pipes[i].top ||
+           birdY + birdRadius > pipes[i].top + gap)
+        ) {
+          alert("Game Over! Score: " + score);
+          document.location.reload();
+        }
 
-// utility: start background after user interaction (browsers block autoplay)
-let startedAudio = false;
-function startAudioOnce(){
-  if(!startedAudio){
-    try { audio.backsound.play().catch(()=>{}); } catch(e){}
-    startedAudio = true;
-  }
-}
-
-// initialize new game state
-function resetGame(){
-  score = 0;
-  pipes = [];
-  bird.w = Math.min(80, Math.floor(W*0.08));
-  bird.h = bird.w;
-  bird.x = Math.floor(W/3);
-  bird.y = Math.floor(H/2);
-  bird.vy = 0;
-  doubleActive = false;
-  doubleStart = 0;
-  // spawn first
-  pipes.push(makePipe(W));
-}
-
-// make a pipe (with type)
-function makePipe(x){
-  const topH = Math.floor(100 + Math.random()*(H - gap - 200));
-  const type = (Math.random() < 0.2) ? 'x2' : 'normal';
-  return { x: x, y: topH, type: type, passed: false };
-}
-
-// input
-function flap(){
-  bird.vy = jumpPower;
-  // play flap
-  if(audio.flap){ audio.flap.currentTime = 0; audio.flap.play().catch(()=>{}); }
-  startAudioOnce();
-}
-
-// handle clicks / taps / keyboard
-window.addEventListener('keydown', (e) => {
-  if(e.code === 'Space' || e.code === 'ArrowUp'){ if(!running){ startFromMenu(); } flap(); }
-});
-canvas.addEventListener('mousedown', (e) => { if(!running){ startFromMenu(); } flap(); });
-canvas.addEventListener('touchstart', (e) => { e.preventDefault(); if(!running){ startFromMenu(); } flap(); }, {passive:false});
-
-// start from menu
-function startFromMenu(){
-  if(inMenu){
-    inMenu = false;
-    running = true;
-    resetGame();
-    // start background music
-    try { audio.backsound.play(); } catch(e){}
-  }
-}
-
-// menu buttons
-document.getElementById('startBtn').addEventListener('click', () => { startFromMenu(); hideMenu(); });
-document.getElementById('exitBtn').addEventListener('click', () => { window.location.href = 'about:blank'; });
-function hideMenu(){ document.getElementById('menuOverlay').style.display = 'none'; }
-function showMenu(){ document.getElementById('menuOverlay').style.display = 'flex'; }
-
-// collision helper
-function rectsCollide(a,b){ return !(a.x+b.w < b.x || a.x > b.x+b.w || a.y+a.h < b.y || a.y > b.y+b.h); }
-
-// game loop
-let lastTime=0;
-function loop(ts){
-  const dt = (ts - lastTime) / 16.666; lastTime = ts; // ~60fps frame scale
-  update(dt);
-  render();
-  requestAnimationFrame(loop);
-}
-
-// update
-function update(dt){
-  if(!running) return;
-
-  // physics
-  bird.vy += gravity * dt;
-  bird.y += bird.vy * dt;
-
-  // pipe movement
-  for(let p of pipes) p.x -= speed * dt;
-
-  // spawn new pipe if needed
-  if(pipes.length && pipes[pipes.length-1].x < W - pipeGapHoriz){
-    pipes.push(makePipe(W + 200));
-  }
-
-  // remove leftmost and score
-  if(pipes.length && pipes[0].x + pipeW < 0){
-    pipes.shift();
-  }
-
-  // scoring: check when pipe passed bird
-  for(let p of pipes){
-    if(!p.passed && p.x + pipeW < bird.x){
-      p.passed = true;
-      // if p is x2 => activate double score
-      if(p.type === 'x2'){
-        doubleActive = true;
-        doubleStart = Date.now()/1000;
-        // show popup
-        document.getElementById('popupX2').style.display = 'block';
-        // optionally play sound (we can reuse point/hit if desired)
+        // Skor
+        if (pipes[i].x + pipeWidth === birdX) {
+          score++;
+          document.getElementById("score").innerText = "Score: " + score;
+        }
       }
-      // score increment
-      score += (doubleActive ? 2 : 1);
-      if(audio.point){ try { audio.point.currentTime = 0; audio.point.play().catch(()=>{}); } catch(e){} }
+
+      // Tambah pipa
+      if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - 200) {
+        addPipe();
+      }
+
+      // Hapus pipa yang keluar layar
+      if (pipes.length > 0 && pipes[0].x + pipeWidth < 0) {
+        pipes.shift();
+      }
+
+      // Cek jatuh
+      if (birdY + birdRadius > canvas.height) {
+        alert("Game Over! Score: " + score);
+        document.location.reload();
+      }
     }
-  }
 
-  // expire double
-  if(doubleActive){
-    if((Date.now()/1000) - doubleStart > doubleDuration){
-      doubleActive = false;
-      document.getElementById('popupX2').style.display = 'none';
+    function draw() {
+      ctx.fillStyle = "#70c5ce";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Burung
+      ctx.fillStyle = "yellow";
+      ctx.beginPath();
+      ctx.arc(birdX, birdY, birdRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pipa
+      ctx.fillStyle = "green";
+      for (let i = 0; i < pipes.length; i++) {
+        let p = pipes[i];
+        ctx.fillRect(p.x, 0, pipeWidth, p.top); // pipa atas
+        ctx.fillRect(p.x, p.top + gap, pipeWidth, canvas.height); // pipa bawah
+      }
     }
-  }
 
-  // collision: bird with top/bottom
-  const birdRect = { x: bird.x, y: bird.y, w: bird.w, h: bird.h };
-  if(bird.y <= 0 || bird.y + bird.h >= H - (imgBase ? Math.min(120, Math.floor(H*0.12)) : 0)){
-    onGameOver();
-  }
-
-  // collision with pipes
-  for(let p of pipes){
-    const topRect = { x: p.x, y: 0, w: pipeW, h: p.y };
-    const bottomRect = { x: p.x, y: p.y + gap, w: pipeW, h: H - (p.y + gap) };
-    if(rectsCollide(birdRect, topRect) || rectsCollide(birdRect, bottomRect)){
-      onGameOver();
-      break;
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
     }
-  }
 
-  // update HUD
-  document.getElementById('score').innerText = 'Skor: ' + score;
-  if(score > highscore){
-    highscore = score;
-    localStorage.setItem('flappy_siput_hs', highscore);
-  }
-  document.getElementById('highscore').innerText = 'Highscore: ' + highscore;
-}
-
-// on game over
-function onGameOver(){
-  running = false;
-  inMenu = true;
-  // stop music? keep playing or pause
-  try { audio.backsound.pause(); } catch(e){}
-  try { audio.hit.currentTime = 0; audio.hit.play().catch(()=>{}); } catch(e){}
-  // show menu again after small delay
-  document.getElementById('popupX2').style.display = 'none';
-  setTimeout(()=>{ showMenu(); document.getElementById('hsMenu').innerText = highscore; }, 500);
-}
-
-// render
-function render(){
-  // draw background
-  if(imgBg.complete) ctx.drawImage(imgBg, 0, 0, W, H);
-  else { ctx.fillStyle = '#87CEFA'; ctx.fillRect(0,0,W,H); }
-
-  // pipes
-  ctx.save();
-  for(let p of pipes){
-    const pImg = (p.type === 'x2' && imgPipeX2.complete) ? imgPipeX2 : imgPipe;
-    // top pipe (flipped)
-    if(pImg.complete){
-      // top: draw image flipped vertically by drawing from source and scaling -1
-      ctx.save();
-      ctx.translate(p.x + pipeW/2, p.y - H + pipeW/2); // approximate
-      ctx.scale(1, -1);
-      ctx.drawImage(pImg, -pipeW/2, 0, pipeW, H);
-      ctx.restore();
-      // bottom
-      ctx.drawImage(pImg, p.x, p.y + gap, pipeW, H);
-    } else {
-      // fallback rectangles
-      ctx.fillStyle = (p.type === 'x2') ? '#FFD700' : '#228B22';
-      ctx.fillRect(p.x, 0, pipeW, p.y);
-      ctx.fillRect(p.x, p.y + gap, pipeW, H - (p.y + gap));
-    }
-  }
-  ctx.restore();
-
-  // base
-  const baseH = Math.min(120, Math.floor(H*0.12));
-  if(imgBase.complete) ctx.drawImage(imgBase, 0, H - baseH, W, baseH);
-  else {
-    ctx.fillStyle = '#C49663';
-    ctx.fillRect(0, H - baseH, W, baseH);
-  }
-
-  // bird
-  if(imgBird.complete) ctx.drawImage(imgBird, bird.x - bird.w/2, bird.y - bird.h/2, bird.w, bird.h);
-  else { ctx.fillStyle = '#FFD700'; ctx.fillRect(bird.x - bird.w/2, bird.y - bird.h/2, bird.w, bird.h); }
-
-  // center popup handled by DOM element (img)
-  // If doubleActive ensure popup visible (already controlled)
-}
-
-// initial menu show
-showMenu();
-requestAnimationFrame(loop);
-
-</script>
+    addPipe();
+    loop();
+  </script>
 </body>
 </html>
